@@ -37,6 +37,11 @@ class ModelProvider:
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._config = config or ModelConfig()
+        if not self._config.api_key and http_client is None:
+            raise ProviderError(
+                0,
+                "No API key configured. Set SMRITI_MODEL_API_KEY to your OpenRouter key.",
+            )
         self._client = http_client or httpx.AsyncClient(
             base_url=OPENROUTER_BASE_URL,
             headers={

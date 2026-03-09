@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 
 class PostgresConfig(BaseSettings):
-    model_config = {"env_prefix": "SMRITI_PG_"}
+    model_config = {"env_prefix": "SMRITI_PG_", "env_file": ".env", "extra": "ignore"}
 
     host: str = "127.0.0.1"
     port: int = 5432
@@ -25,7 +25,7 @@ class PostgresConfig(BaseSettings):
 
 
 class ValkeyConfig(BaseSettings):
-    model_config = {"env_prefix": "SMRITI_VALKEY_"}
+    model_config = {"env_prefix": "SMRITI_VALKEY_", "env_file": ".env", "extra": "ignore"}
 
     host: str = "127.0.0.1"
     port: int = 6379
@@ -37,7 +37,7 @@ class ValkeyConfig(BaseSettings):
 
 
 class ModelConfig(BaseSettings):
-    model_config = {"env_prefix": "SMRITI_MODEL_"}
+    model_config = {"env_prefix": "SMRITI_MODEL_", "env_file": ".env", "extra": "ignore"}
 
     provider: str = "openrouter"
     api_key: str = ""
@@ -49,7 +49,7 @@ class ModelConfig(BaseSettings):
 
 
 class DaemonConfig(BaseSettings):
-    model_config = {"env_prefix": "SMRITI_DAEMON_"}
+    model_config = {"env_prefix": "SMRITI_DAEMON_", "env_file": ".env", "extra": "ignore"}
 
     host: str = "0.0.0.0"
     port: int = 9898
