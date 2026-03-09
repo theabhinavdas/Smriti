@@ -14,10 +14,12 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from smriti.config import Settings, load_settings
 from smriti.daemon import Daemon
+from smriti.imports.tracker import ImportTracker
 from smriti.models.events import SourceEvent
 from smriti.retrieval import RetrievalEngine
 
@@ -41,6 +43,12 @@ async def lifespan(app: FastAPI):  # noqa: ANN201
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Application factory."""
     app = FastAPI(title="Smriti", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^(chrome-extension://.*|http://127\.0\.0\.1:\d+|http://localhost:\d+)$",
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     if settings:
         app.state.settings = settings
     app.include_router(_router)
@@ -145,6 +153,68 @@ async def search_memories(req: SearchRequest) -> SearchResponse:
         for rm in ranked
     ]
     return SearchResponse(results=results)
+
+
+# -- Imports ---------------------------------------------------------------
+
+
+class ImportRecord(BaseModel):
+    file_path: str
+    file_hash: str
+    file_size: int
+    format: str | None
+    events_generated: int
+    status: str
+    error: str | None
+    processed_at: str
+
+
+class ImportsListResponse(BaseModel):
+    imports: list[ImportRecord]
+
+
+class RetryResponse(BaseModel):
+    deleted: bool
+    message: str
+
+
+@_router.get("/imports")
+async def list_imports(
+    status: str | None = None, limit: int = 50, offset: int = 0
+) -> ImportsListResponse:
+    daemon = _get_daemon()
+    tracker = ImportTracker()
+    async with daemon.session_factory() as session:
+        rows = await tracker.list_imports(session, status=status, limit=limit, offset=offset)
+
+    records = [
+        ImportRecord(
+            file_path=r.file_path,
+            file_hash=r.file_hash,
+            file_size=r.file_size,
+            format=r.format,
+            events_generated=r.events_generated,
+            status=r.status,
+            error=r.error,
+            processed_at=r.processed_at.isoformat() if r.processed_at else "",
+        )
+        for r in rows
+    ]
+    return ImportsListResponse(imports=records)
+
+
+@_router.post("/imports/retry")
+async def retry_import(file_hash: str) -> RetryResponse:
+    """Delete the tracking record for a file so it gets re-processed on next scan."""
+    daemon = _get_daemon()
+    tracker = ImportTracker()
+    async with daemon.session_factory() as session:
+        async with session.begin():
+            deleted = await tracker.delete_by_hash(session, file_hash)
+
+    if deleted:
+        return RetryResponse(deleted=True, message="Record deleted; file will be re-imported on next scan.")
+    return RetryResponse(deleted=False, message="No import record found for this hash.")
 
 
 # -- Stats -----------------------------------------------------------------

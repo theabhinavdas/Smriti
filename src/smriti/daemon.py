@@ -12,12 +12,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from smriti.config import Settings, load_settings
 from smriti.db.engine import create_engine, create_session_factory
 from smriti.event_bus import EventBus
+from smriti.imports.watcher import ImportWatcher
 from smriti.ingestion.extractor import MemoryExtractor
 from smriti.ingestion.router import TierRouter
 from smriti.ingestion.salience import SalienceFilter
@@ -49,14 +51,25 @@ class Daemon:
     salience: SalienceFilter = field(init=False)
     extractor: MemoryExtractor = field(init=False)
     router: TierRouter = field(init=False)
+    import_watcher: ImportWatcher | None = field(init=False, default=None)
     stats: PipelineStats = field(default_factory=PipelineStats)
 
     _running: bool = field(default=False, repr=False)
+    _import_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.salience = SalienceFilter(provider=self.provider)
         self.extractor = MemoryExtractor(provider=self.provider)
         self.router = TierRouter()
+
+        if self.settings.imports.enabled:
+            watch_dir = Path(self.settings.imports.watch_directory).expanduser()
+            self.import_watcher = ImportWatcher(
+                watch_dir=watch_dir,
+                event_bus=self.event_bus,
+                session_factory=self.session_factory,
+                poll_interval=self.settings.imports.poll_interval_seconds,
+            )
 
     @classmethod
     async def from_settings(cls, settings: Settings | None = None) -> Daemon:
@@ -86,6 +99,11 @@ class Daemon:
         """
         self._running = True
         logger.info("memoryd started — consuming from %s", self.event_bus.stream_key)
+
+        if self.import_watcher is not None:
+            self._import_task = asyncio.create_task(self.import_watcher.run())
+            logger.info("ImportWatcher started as background task")
+
         iteration = 0
         try:
             while self._running:
@@ -97,6 +115,12 @@ class Daemon:
             logger.info("memoryd cancelled, shutting down")
         finally:
             self._running = False
+            if self._import_task is not None and not self._import_task.done():
+                self._import_task.cancel()
+                try:
+                    await self._import_task
+                except asyncio.CancelledError:
+                    pass
 
     async def stop(self) -> None:
         """Signal the run loop to stop after the current batch."""
@@ -145,6 +169,14 @@ class Daemon:
     async def shutdown(self) -> None:
         """Release all resources."""
         await self.stop()
+        if self.import_watcher is not None:
+            await self.import_watcher.stop()
+        if self._import_task is not None and not self._import_task.done():
+            self._import_task.cancel()
+            try:
+                await self._import_task
+            except asyncio.CancelledError:
+                pass
         await self.event_bus.close()
         await self.provider.close()
         await self.engine.dispose()

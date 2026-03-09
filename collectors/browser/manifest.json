@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Smriti Browser Collector",
+  "version": "0.1.0",
+  "description": "Captures browsing activity and AI conversations for your personal memory system.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage",
+    "bookmarks"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:9898/*",
+    "http://localhost:9898/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["src/extractors/base.js", "src/extractors/chatgpt.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["src/extractors/base.js", "src/extractors/gemini.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["src/extractors/base.js", "src/extractors/claude.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

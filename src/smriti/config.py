@@ -56,11 +56,20 @@ class DaemonConfig(BaseSettings):
     consolidation_interval_minutes: int = 30
 
 
+class ImportsConfig(BaseSettings):
+    model_config = {"env_prefix": "SMRITI_IMPORTS_", "env_file": ".env", "extra": "ignore"}
+
+    enabled: bool = True
+    watch_directory: str = "~/.smriti/imports"
+    poll_interval_seconds: float = 10.0
+
+
 class Settings(BaseSettings):
     postgres: PostgresConfig = PostgresConfig()
     valkey: ValkeyConfig = ValkeyConfig()
     models: ModelConfig = ModelConfig()
     daemon: DaemonConfig = DaemonConfig()
+    imports: ImportsConfig = ImportsConfig()
     log_level: str = "info"
 
 

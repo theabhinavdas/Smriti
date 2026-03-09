@@ -52,6 +52,10 @@ class SalienceFilter:
             return self._score_browser(event)
         if source == "cursor":
             return self._score_cursor(event)
+        if source in ("import", "obsidian"):
+            return self._score_import(event)
+        if source in ("chatgpt", "gemini", "claude"):
+            return self._score_ai_chat(event)
         return 0.3
 
     @staticmethod
@@ -81,6 +85,32 @@ class SalienceFilter:
         if dwell > 30:
             return 0.6
         return 0.3
+
+    @staticmethod
+    def _score_import(event: SourceEvent) -> float:
+        """Imports are user-initiated so default to high salience."""
+        etype = event.event_type
+        if etype == "conversation":
+            return 0.85
+        if etype == "note":
+            content_len = len(event.raw_content)
+            if content_len < 50:
+                return 0.3
+            return 0.8
+        return 0.7
+
+    @staticmethod
+    def _score_ai_chat(event: SourceEvent) -> float:
+        """AI chat conversations captured by the browser extension."""
+        etype = event.event_type
+        if etype == "conversation":
+            return 0.85
+        if etype == "ai_message":
+            content_len = len(event.raw_content)
+            if content_len < 20:
+                return 0.2
+            return 0.7
+        return 0.5
 
     @staticmethod
     def _score_cursor(event: SourceEvent) -> float:

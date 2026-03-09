@@ -2,7 +2,7 @@
 
 > *smriti* (स्मृति) — Sanskrit for "memory", "remembrance"
 
-Persistent, cross-session memory for LLMs. Smriti observes your activity (terminal, browser, IDE), extracts what matters, and assembles relevant context every time an LLM needs it.
+Persistent, cross-session memory for LLMs. Smriti observes your activity (terminal, browser, IDE), ingests exports from your tools (ChatGPT, Obsidian, etc.), extracts what matters, and assembles relevant context every time an LLM needs it.
 
 Instead of starting every conversation from scratch, your LLM remembers what you worked on, what you prefer, and what you know.
 
@@ -18,6 +18,33 @@ Smriti uses a four-tier memory architecture inspired by human cognition:
 | 4 | **Semantic** | Long-term knowledge graph (skills, preferences, relationships) | Postgres + pgvector |
 
 Memories flow upward over time: raw events are filtered for salience, extracted into episodes, and periodically consolidated into durable semantic facts -- much like how human memory consolidates during sleep.
+
+## Collectors
+
+Smriti gathers context from multiple sources:
+
+### Browser extension
+
+A Chrome extension (also works on Arc, Brave, Edge) that captures your browsing activity:
+
+- **Page visits** with dwell time (skips bounces under 5 seconds)
+- **Text selections** -- anything you highlight is treated as high-signal
+- **Search queries** from Google, DuckDuckGo, Bing, GitHub, Stack Overflow
+- **AI conversations** -- full conversation extraction from ChatGPT, Gemini, and Claude via DOM parsing with MutationObserver
+
+To install: go to `chrome://extensions`, enable Developer Mode, click "Load unpacked", and select the `collectors/browser/` directory. Configure the daemon URL and blocklist from the extension popup.
+
+### Import directory
+
+Drop files from any app into `~/.smriti/imports/` and they'll be automatically ingested:
+
+| Format | File types | Source | What it extracts |
+|--------|-----------|--------|-----------------|
+| ChatGPT export | `.json` (conversations.json) | `chatgpt` | Full conversation threads with timestamps and model info |
+| Markdown / Obsidian | `.md`, `.markdown` | `obsidian` | Notes split by headings, with frontmatter as metadata |
+| Plain text | `.txt`, `.text`, `.log` | `import` | Document content, chunked for large files |
+
+The watcher scans recursively (handles Obsidian vaults with nested folders), ignores dotfiles and OS noise (`.DS_Store`, etc.), and tracks every processed file by SHA-256 hash so nothing is ingested twice. You can retry failed imports via the API.
 
 ## Quick start
 
@@ -99,6 +126,8 @@ The daemon exposes a local HTTP API:
 | `POST` | `/v1/events` | Push events (for collectors) |
 | `POST` | `/v1/search` | Semantic memory search |
 | `GET` | `/v1/stats` | Pipeline statistics |
+| `GET` | `/v1/imports` | List processed imports (filter by `?status=completed\|failed`) |
+| `POST` | `/v1/imports/retry` | Delete a tracking record so a file gets re-imported (`?file_hash=...`) |
 
 ### Push an event
 
@@ -137,6 +166,9 @@ All settings can be overridden via environment variables:
 | `SMRITI_VALKEY_HOST` | `127.0.0.1` | Valkey host |
 | `SMRITI_DAEMON_PORT` | `9898` | API port |
 | `SMRITI_DAEMON_CONSOLIDATION_INTERVAL_MINUTES` | `30` | Consolidation frequency |
+| `SMRITI_IMPORTS_ENABLED` | `true` | Enable the import directory watcher |
+| `SMRITI_IMPORTS_WATCH_DIRECTORY` | `~/.smriti/imports` | Directory to watch for import files |
+| `SMRITI_IMPORTS_POLL_INTERVAL_SECONDS` | `10` | How often to scan for new files |
 
 ## Development
 
@@ -147,11 +179,13 @@ pytest
 # Run only unit tests (no infrastructure needed)
 pytest tests/test_models.py tests/test_config.py tests/test_buffer.py \
        tests/test_provider.py tests/test_ingestion.py tests/test_daemon.py \
-       tests/test_context.py tests/test_cli.py tests/test_consolidation.py
+       tests/test_context.py tests/test_cli.py tests/test_consolidation.py \
+       tests/test_parsers.py
 
 # Run integration tests (needs Postgres + Valkey)
 pytest tests/test_db.py tests/test_event_bus.py tests/test_working_memory.py \
-       tests/test_episodic.py tests/test_semantic.py tests/test_retrieval.py
+       tests/test_episodic.py tests/test_semantic.py tests/test_retrieval.py \
+       tests/test_import_tracker.py tests/test_import_watcher.py
 
 # Lint
 ruff check src/ tests/
@@ -168,15 +202,31 @@ src/smriti/
 ├── db/              # SQLAlchemy tables, engine, repositories
 ├── memory/          # Tier implementations (buffer, working, episodic, semantic)
 ├── ingestion/       # Pipeline: salience filter → extractor → tier router
+├── imports/         # Import directory watcher + file parsers
+│   ├── watcher.py   #   Directory scanner with dedup tracking
+│   ├── tracker.py   #   Processed imports table + repository
+│   └── parsers/     #   Format parsers (ChatGPT, markdown, plaintext)
 ├── config.py        # Environment-based configuration
 ├── event_bus.py     # Valkey Streams pub/sub
 ├── provider.py      # OpenRouter LLM/embedding client
 ├── retrieval.py     # Hybrid search + multi-signal ranking
 ├── context.py       # Tier-adaptive rendering + token budget assembly
 ├── consolidation.py # Episodic → semantic promotion (sleep-like)
-├── daemon.py        # Pipeline orchestrator (consume loop)
+├── daemon.py        # Pipeline orchestrator (consume loop + import watcher)
 ├── api.py           # FastAPI HTTP endpoints
 └── cli.py           # Click CLI (serve, status, search)
+
+collectors/browser/  # Chrome extension for browsing activity capture
+├── manifest.json    # Manifest V3 (Chrome, Arc, Brave, Edge)
+├── src/
+│   ├── background.js   # Service worker: tab tracking, event batching
+│   ├── content.js      # Generic: text selection, search detection
+│   ├── extractors/     # AI chat site extractors (ChatGPT, Gemini, Claude)
+│   ├── api.js          # HTTP client with offline buffering
+│   ├── config.js       # Settings management
+│   ├── popup.html/js/css # Settings UI
+│   └── ...
+└── icons/
 ```
 
 ## License

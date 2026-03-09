@@ -70,6 +70,35 @@ class TestSalienceHeuristic:
         score = f.heuristic_score(_event("calendar", "meeting", "standup"))
         assert score == 0.3
 
+    def test_import_conversation_is_high(self) -> None:
+        f = SalienceFilter()
+        score = f.heuristic_score(_event("chatgpt", "conversation", "long chat..."))
+        assert score >= 0.8
+
+    def test_import_note_is_high(self) -> None:
+        f = SalienceFilter()
+        score = f.heuristic_score(
+            _event("obsidian", "note", "A" * 200)
+        )
+        assert score >= 0.7
+
+    def test_import_short_note_is_low(self) -> None:
+        f = SalienceFilter()
+        score = f.heuristic_score(_event("obsidian", "note", "hi"))
+        assert score <= 0.3
+
+    def test_ai_chat_message_scored_by_length(self) -> None:
+        f = SalienceFilter()
+        short = f.heuristic_score(_event("gemini", "ai_message", "ok"))
+        long = f.heuristic_score(_event("gemini", "ai_message", "A" * 100))
+        assert short < long
+
+    def test_ai_chat_conversation_is_high(self) -> None:
+        f = SalienceFilter()
+        for source in ("chatgpt", "gemini", "claude"):
+            score = f.heuristic_score(_event(source, "conversation", "full chat"))
+            assert score >= 0.8
+
 
 # ---------------------------------------------------------------------------
 # SalienceFilter: combined pipeline
