@@ -14,6 +14,8 @@ const DEFAULTS = {
     "mail.google.com",
     "*.1password.com",
     "accounts.google.com",
+    "127.0.0.1",
+    "localhost",
   ],
   extractors: {
     chatgpt: true,

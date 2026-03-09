@@ -54,6 +54,7 @@ class DaemonConfig(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 9898
     consolidation_interval_minutes: int = 30
+    ignored_projects: list[str] = ["smriti"]
 
 
 class ImportsConfig(BaseSettings):

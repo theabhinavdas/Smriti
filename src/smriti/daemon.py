@@ -60,7 +60,10 @@ class Daemon:
     _import_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        self.salience = SalienceFilter(provider=self.provider)
+        self.salience = SalienceFilter(
+            provider=self.provider,
+            ignored_projects=self.settings.daemon.ignored_projects,
+        )
         self.extractor = MemoryExtractor(provider=self.provider)
         self.router = TierRouter()
 

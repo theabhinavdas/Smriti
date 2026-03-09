@@ -37,14 +37,51 @@ class ScoredEvent:
 
 
 class SalienceFilter:
-    def __init__(self, provider: ModelProvider | None = None) -> None:
+    def __init__(
+        self,
+        provider: ModelProvider | None = None,
+        ignored_projects: list[str] | None = None,
+    ) -> None:
         self._provider = provider
+        self._ignored_projects = [p.lower() for p in (ignored_projects or [])]
+
+    # ------------------------------------------------------------------
+    # Ignored-project gate
+    # ------------------------------------------------------------------
+
+    def _is_ignored_project(self, event: SourceEvent) -> bool:
+        """Return True if the event relates to an ignored project."""
+        if not self._ignored_projects:
+            return False
+
+        ctx = event.activity_context
+        if ctx.project and ctx.project.lower() in self._ignored_projects:
+            return True
+        if ctx.working_directory:
+            wd = ctx.working_directory.lower()
+            if any(f"/{p}/" in wd or wd.endswith(f"/{p}") for p in self._ignored_projects):
+                return True
+
+        if event.source in ("chatgpt", "gemini", "claude"):
+            title = (event.metadata.get("title") or "").lower()
+            if any(p in title for p in self._ignored_projects):
+                return True
+
+        if event.source == "browser":
+            url = (event.metadata.get("url") or "").lower()
+            if "127.0.0.1" in url or "localhost" in url:
+                return True
+
+        return False
 
     # ------------------------------------------------------------------
     # Stage 1: Heuristic (no LLM)
     # ------------------------------------------------------------------
 
     def heuristic_score(self, event: SourceEvent) -> float:
+        if self._is_ignored_project(event):
+            return 0.0
+
         source = event.source
         if source == "terminal":
             return self._score_terminal(event)

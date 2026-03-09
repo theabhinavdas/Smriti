@@ -12,7 +12,7 @@ from smriti.config import ModelConfig
 from smriti.ingestion.extractor import ExtractedMemory, MemoryExtractor
 from smriti.ingestion.router import TierRouter
 from smriti.ingestion.salience import SalienceFilter, ScoredEvent
-from smriti.models.events import SourceEvent
+from smriti.models.events import ActivityContext, SourceEvent
 from smriti.models.memory import MemoryTier
 from smriti.provider import ModelProvider
 
@@ -98,6 +98,97 @@ class TestSalienceHeuristic:
         for source in ("chatgpt", "gemini", "claude"):
             score = f.heuristic_score(_event(source, "conversation", "full chat"))
             assert score >= 0.8
+
+
+# ---------------------------------------------------------------------------
+# SalienceFilter: ignored projects
+# ---------------------------------------------------------------------------
+
+
+class TestIgnoredProjects:
+    def test_terminal_event_with_matching_project_is_dropped(self) -> None:
+        f = SalienceFilter(ignored_projects=["smriti"])
+        ev = SourceEvent(
+            source="terminal",
+            event_type="cmd",
+            raw_content="git commit -m 'feat'",
+            activity_context=ActivityContext(project="smriti"),
+        )
+        assert f.heuristic_score(ev) == 0.0
+
+    def test_cursor_event_with_matching_working_dir_is_dropped(self) -> None:
+        f = SalienceFilter(ignored_projects=["smriti"])
+        ev = SourceEvent(
+            source="cursor",
+            event_type="file_created",
+            raw_content="new_module.py",
+            activity_context=ActivityContext(
+                working_directory="/Users/dev/work/smriti/src"
+            ),
+        )
+        assert f.heuristic_score(ev) == 0.0
+
+    def test_ai_chat_with_matching_title_is_dropped(self) -> None:
+        f = SalienceFilter(ignored_projects=["smriti"])
+        ev = SourceEvent(
+            source="chatgpt",
+            event_type="conversation",
+            raw_content="long chat about memory architecture",
+            metadata={"title": "Smriti salience filter design"},
+        )
+        assert f.heuristic_score(ev) == 0.0
+
+    def test_browser_event_with_localhost_url_is_dropped(self) -> None:
+        f = SalienceFilter(ignored_projects=["smriti"])
+        ev = SourceEvent(
+            source="browser",
+            event_type="page_visited",
+            raw_content="Memory Browser",
+            metadata={"url": "http://localhost:9898/", "dwell_seconds": 60},
+        )
+        assert f.heuristic_score(ev) == 0.0
+
+    def test_unrelated_project_passes_through(self) -> None:
+        f = SalienceFilter(ignored_projects=["smriti"])
+        ev = SourceEvent(
+            source="terminal",
+            event_type="cmd",
+            raw_content="git commit -m 'feat'",
+            activity_context=ActivityContext(project="webapp"),
+        )
+        assert f.heuristic_score(ev) > 0.0
+
+    def test_empty_ignored_list_disables_filtering(self) -> None:
+        f = SalienceFilter(ignored_projects=[])
+        ev = SourceEvent(
+            source="terminal",
+            event_type="cmd",
+            raw_content="git commit -m 'feat'",
+            activity_context=ActivityContext(project="smriti"),
+        )
+        assert f.heuristic_score(ev) > 0.0
+
+    def test_case_insensitive_project_match(self) -> None:
+        f = SalienceFilter(ignored_projects=["Smriti"])
+        ev = SourceEvent(
+            source="cursor",
+            event_type="file_edited",
+            raw_content="config.py",
+            activity_context=ActivityContext(project="smriti"),
+        )
+        assert f.heuristic_score(ev) == 0.0
+
+    def test_working_dir_at_end_of_path(self) -> None:
+        f = SalienceFilter(ignored_projects=["smriti"])
+        ev = SourceEvent(
+            source="terminal",
+            event_type="cmd",
+            raw_content="make test",
+            activity_context=ActivityContext(
+                working_directory="/Users/dev/work/smriti"
+            ),
+        )
+        assert f.heuristic_score(ev) == 0.0
 
 
 # ---------------------------------------------------------------------------

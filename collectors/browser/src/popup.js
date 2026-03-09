@@ -8,7 +8,7 @@ const DEFAULTS = {
   minDwellSeconds: 5,
   batchIntervalMs: 5000,
   maxQueueSize: 1000,
-  blocklist: ["*.bank.com", "mail.google.com", "*.1password.com", "accounts.google.com"],
+  blocklist: ["*.bank.com", "mail.google.com", "*.1password.com", "accounts.google.com", "127.0.0.1", "localhost"],
   extractors: { chatgpt: true, gemini: true, claude: true },
 };
 
