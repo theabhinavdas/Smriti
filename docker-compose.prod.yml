@@ -1,0 +1,61 @@
+services:
+  memoryd:
+    build: .
+    ports:
+      - "127.0.0.1:9898:9898"
+    environment:
+      SMRITI_PG_HOST: postgres
+      SMRITI_PG_DATABASE: smriti
+      SMRITI_PG_USER: smriti
+      SMRITI_PG_PASSWORD: ${SMRITI_PG_PASSWORD:-smriti}
+      SMRITI_VALKEY_HOST: valkey
+      SMRITI_VALKEY_PASSWORD: ${SMRITI_VALKEY_PASSWORD:-}
+      SMRITI_MODEL_API_KEY: ${SMRITI_MODEL_API_KEY:?Set SMRITI_MODEL_API_KEY to your OpenRouter key}
+      SMRITI_DAEMON_HOST: "0.0.0.0"
+      SMRITI_DAEMON_PORT: "9898"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9898/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: smriti
+      POSTGRES_USER: smriti
+      POSTGRES_PASSWORD: ${SMRITI_PG_PASSWORD:-smriti}
+    volumes:
+      - smriti-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smriti"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    command: >
+      valkey-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - smriti-valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  smriti-pg-data:
+  smriti-valkey-data:
