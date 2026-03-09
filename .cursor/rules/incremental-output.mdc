@@ -1,0 +1,10 @@
+---
+description: Limit code generation to small increments — no more than ~200 lines per response
+alwaysApply: true
+---
+
+# Incremental Output
+
+- Never generate more than ~200 lines of code in a single response.
+- Large features must be implemented in phases across multiple responses.
+- After each phase, pause and wait for confirmation before continuing.
