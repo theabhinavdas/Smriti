@@ -78,6 +78,7 @@ class ImportWatcher:
     async def _scan(self) -> None:
         """Walk the import directory and process any new files."""
         files = self._collect_files()
+        logger.debug("Scan found %d file(s) in %s", len(files), self._watch_dir)
         if not files:
             return
 
@@ -114,11 +115,12 @@ class ImportWatcher:
         async with self._session_factory() as session:
             async with session.begin():
                 if await self._tracker.is_processed(session, file_hash):
+                    logger.debug("Already processed %s (hash=%s…), skipping", path.name, file_hash[:12])
                     return
 
                 parser = self._find_parser(path)
                 if parser is None:
-                    logger.debug("No parser found for %s, skipping", path.name)
+                    logger.info("No parser found for %s, skipping", path.name)
                     return
 
                 try:
