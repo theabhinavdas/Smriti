@@ -127,6 +127,57 @@ class TestSearch:
         assert "Search failed" in result.output
 
 
+class TestDelete:
+    def test_delete_with_confirmation(self) -> None:
+        runner = CliRunner()
+        resp = _mock_response(json_data={"deleted": True, "id": "abc-123"})
+
+        with patch("smriti.cli.httpx.request", return_value=resp):
+            result = runner.invoke(main, ["delete", "abc-123"], input="y\n")
+
+        assert result.exit_code == 0
+        assert "Deleted memory abc-123" in result.output
+
+    def test_delete_skips_confirmation_with_yes_flag(self) -> None:
+        runner = CliRunner()
+        resp = _mock_response(json_data={"deleted": True, "id": "abc-123"})
+
+        with patch("smriti.cli.httpx.request", return_value=resp):
+            result = runner.invoke(main, ["delete", "--yes", "abc-123"])
+
+        assert result.exit_code == 0
+        assert "Deleted memory abc-123" in result.output
+
+    def test_delete_aborted(self) -> None:
+        runner = CliRunner()
+
+        result = runner.invoke(main, ["delete", "abc-123"], input="n\n")
+
+        assert result.exit_code == 1
+        assert "Aborted" in result.output
+
+    def test_delete_not_found(self) -> None:
+        runner = CliRunner()
+        resp = _mock_response(status_code=404)
+
+        with patch("smriti.cli.httpx.request", return_value=resp):
+            result = runner.invoke(main, ["delete", "--yes", "abc-123"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_delete_api_error(self) -> None:
+        runner = CliRunner()
+        resp = _mock_response(status_code=500)
+        resp.text = "Internal error"
+
+        with patch("smriti.cli.httpx.request", return_value=resp):
+            result = runner.invoke(main, ["delete", "--yes", "abc-123"])
+
+        assert result.exit_code == 1
+        assert "Delete failed" in result.output
+
+
 class TestCustomUrl:
     def test_url_option(self) -> None:
         runner = CliRunner()

@@ -45,6 +45,8 @@ button:hover{opacity:.85}
 button:disabled{opacity:.4;cursor:default}
 .btn-ghost{background:transparent;color:var(--fg2);border:1px solid var(--border)}
 .btn-ghost:hover{color:var(--fg);border-color:var(--fg3)}
+.btn-delete{background:transparent;color:var(--fg3);border:1px solid transparent;padding:.2rem .5rem;font-size:.7rem;border-radius:var(--radius)}
+.btn-delete:hover{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.08)}
 
 /* cards */
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:.85rem 1rem;margin-bottom:.5rem;transition:border-color .15s}
@@ -53,7 +55,7 @@ button:disabled{opacity:.4;cursor:default}
 .tier{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;padding:.1rem .4rem;border-radius:3px;font-weight:600;font-family:var(--mono)}
 .tier-episodic{background:#7c8cf822;color:var(--accent)}
 .tier-semantic{background:#4ade8022;color:var(--green)}
-.card-time{font-size:.75rem;color:var(--fg3);margin-left:auto;font-family:var(--mono)}
+.card-time{font-size:.75rem;color:var(--fg3);margin-left:auto;font-family:var(--mono);margin-right:.25rem}
 .card-body{font-size:.85rem;color:var(--fg2);white-space:pre-wrap;word-break:break-word;max-height:8rem;overflow:hidden;position:relative}
 .card-body.expanded{max-height:none}
 .card-toggle{font-size:.75rem;color:var(--accent);cursor:pointer;margin-top:.3rem;display:inline-block}
@@ -197,10 +199,11 @@ function renderMemories(container, memories) {
     const imp = Math.round(m.importance * 100);
     const content = escHtml(m.content);
     const needsExpand = content.length > 500;
-    return `<div class="card">
+    return `<div class="card" data-id="${m.id}">
       <div class="card-head">
         <span class="tier ${tierCls}">${m.tier}</span>
         <span class="card-time">${time}</span>
+        <button class="btn-delete" onclick="deleteMemory('${m.id}', this)" title="Delete memory">✕</button>
       </div>
       <div class="card-body${needsExpand ? '' : ' expanded'}">${content}</div>
       ${needsExpand ? '<span class="card-toggle" onclick="this.previousElementSibling.classList.toggle(\'expanded\');this.textContent=this.textContent===\'show more\'?\'show less\':\'show more\'">show more</span>' : ''}
@@ -273,6 +276,31 @@ function renderSearchResults(container, results) {
 
 document.getElementById('search-go').addEventListener('click', doSearch);
 document.getElementById('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// -- Delete ---------------------------------------------------------------
+async function deleteMemory(id, btn) {
+  if (!confirm('Delete this memory? This cannot be undone.')) return;
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const r = await fetch(`${API}/v1/memories/${id}`, {method: 'DELETE'});
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert(d.detail || 'Delete failed');
+      btn.disabled = false;
+      btn.textContent = '✕';
+      return;
+    }
+    const card = btn.closest('.card');
+    card.style.transition = 'opacity .25s';
+    card.style.opacity = '0';
+    setTimeout(() => { card.remove(); loadCounts(); }, 250);
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '✕';
+  }
+}
 
 // -- Helpers --------------------------------------------------------------
 function escHtml(s) {

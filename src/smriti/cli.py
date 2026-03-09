@@ -146,3 +146,30 @@ def search(ctx: click.Context, query: str, top_k: int, tier: str | None) -> None
             f"[{created}, {r['tier']}, {r['importance']:.2f}] "
             f"{r['content']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# delete
+# ---------------------------------------------------------------------------
+
+
+@main.command()
+@click.argument("memory_id")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+@click.pass_context
+def delete(ctx: click.Context, memory_id: str, yes: bool) -> None:
+    """Delete a memory by ID."""
+    base = _base_url(ctx)
+
+    if not yes:
+        click.confirm(f"Delete memory {memory_id}?", abort=True)
+
+    resp = _request("DELETE", f"{base}/v1/memories/{memory_id}")
+    if resp.status_code == 404:
+        click.echo("Memory not found.", err=True)
+        sys.exit(1)
+    if resp.status_code != 200:
+        click.echo(f"Delete failed: {resp.text}", err=True)
+        sys.exit(1)
+
+    click.echo(f"Deleted memory {memory_id}.")

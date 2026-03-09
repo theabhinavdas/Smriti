@@ -223,6 +223,58 @@ class TestMemoryCounts:
         assert data["total"] == 15
 
 
+class TestDeleteMemory:
+    @pytest.mark.asyncio
+    async def test_deletes_existing_memory(self, client: AsyncClient, mock_daemon) -> None:
+        session = _mock_session(mock_daemon)
+        txn = AsyncMock()
+        txn.__aenter__ = AsyncMock(return_value=txn)
+        txn.__aexit__ = AsyncMock(return_value=False)
+        session.begin = MagicMock(return_value=txn)
+
+        row = _make_memory_row()
+        memory_id = str(row.id)
+
+        with (
+            patch("smriti.api.MemoryRepository") as mock_mem_repo,
+            patch("smriti.api.EdgeRepository") as mock_edge_repo,
+        ):
+            mock_mem_repo.return_value.get_by_id = AsyncMock(return_value=row)
+            mock_mem_repo.return_value.delete_by_id = AsyncMock()
+            mock_edge_repo.return_value.delete_edges_for = AsyncMock()
+
+            resp = await client.delete(f"/v1/memories/{memory_id}")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] is True
+        assert data["id"] == memory_id
+
+    @pytest.mark.asyncio
+    async def test_returns_404_for_missing_memory(self, client: AsyncClient, mock_daemon) -> None:
+        session = _mock_session(mock_daemon)
+        txn = AsyncMock()
+        txn.__aenter__ = AsyncMock(return_value=txn)
+        txn.__aexit__ = AsyncMock(return_value=False)
+        session.begin = MagicMock(return_value=txn)
+
+        missing_id = str(uuid.uuid4())
+
+        with (
+            patch("smriti.api.MemoryRepository") as mock_mem_repo,
+            patch("smriti.api.EdgeRepository"),
+        ):
+            mock_mem_repo.return_value.get_by_id = AsyncMock(return_value=None)
+            resp = await client.delete(f"/v1/memories/{missing_id}")
+
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_uuid(self, client: AsyncClient, mock_daemon) -> None:
+        resp = await client.delete("/v1/memories/not-a-uuid")
+        assert resp.status_code == 422
+
+
 class TestGraph:
     @pytest.mark.asyncio
     async def test_returns_nodes_and_edges(self, client: AsyncClient, mock_daemon) -> None:

@@ -1,14 +1,15 @@
 """FastAPI HTTP API for memoryd.
 
 Endpoints:
-  GET  /v1/health          -- liveness + component status
-  POST /v1/events          -- collectors push SourceEvents
-  POST /v1/search          -- semantic memory search
-  GET  /v1/memories        -- browse/list memories with filters
-  GET  /v1/memories/counts -- memory counts by tier
-  GET  /v1/graph           -- semantic knowledge graph (nodes + edges)
-  GET  /v1/stats           -- pipeline stats
-  GET  /                   -- memory browser UI
+  GET    /v1/health              -- liveness + component status
+  POST   /v1/events              -- collectors push SourceEvents
+  POST   /v1/search              -- semantic memory search
+  GET    /v1/memories            -- browse/list memories with filters
+  GET    /v1/memories/counts     -- memory counts by tier
+  DELETE /v1/memories/{id}       -- delete a memory and its edges
+  GET    /v1/graph               -- semantic knowledge graph (nodes + edges)
+  GET    /v1/stats               -- pipeline stats
+  GET    /                       -- memory browser UI
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import valkey.exceptions
 from fastapi import FastAPI, HTTPException
@@ -335,6 +337,33 @@ async def memory_counts() -> CountsResponse:
     async with daemon.session_factory() as session:
         counts = await repo.count_by_tier(session)
     return CountsResponse(counts=counts, total=sum(counts.values()))
+
+
+# -- Delete memory ---------------------------------------------------------
+
+
+class DeleteMemoryResponse(BaseModel):
+    deleted: bool
+    id: str
+
+
+@_router.delete("/memories/{memory_id}")
+async def delete_memory(memory_id: UUID) -> DeleteMemoryResponse:
+    """Delete a memory and any associated graph edges."""
+    daemon = _get_daemon()
+    mem_repo = MemoryRepository()
+    edge_repo = EdgeRepository()
+
+    async with daemon.session_factory() as session:
+        async with session.begin():
+            existing = await mem_repo.get_by_id(session, memory_id)
+            if existing is None:
+                raise HTTPException(status_code=404, detail="Memory not found")
+
+            await edge_repo.delete_edges_for(session, memory_id)
+            await mem_repo.delete_by_id(session, memory_id)
+
+    return DeleteMemoryResponse(deleted=True, id=str(memory_id))
 
 
 # -- Graph -----------------------------------------------------------------
