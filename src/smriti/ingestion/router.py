@@ -60,6 +60,7 @@ class TierRouter:
         return counts
 
     async def _save_episodic(self, session: AsyncSession, mem: ExtractedMemory) -> None:
+        primary_meta = mem.source_metadata[0] if mem.source_metadata else None
         episode = EpisodicMemory(
             id=uuid4(),
             source=mem.source,
@@ -69,16 +70,19 @@ class TierRouter:
             entities=mem.entities,
             topics=mem.topics,
             importance=mem.importance,
+            source_metadata=primary_meta,
         )
         await self._episodic.save(session, episode)
 
     async def _save_semantic(self, session: AsyncSession, mem: ExtractedMemory) -> None:
+        unique_sources = sorted({sm.source for sm in mem.source_metadata})
         node = SemanticNode(
             id=uuid4(),
             label=mem.summary,
             node_type=self._infer_node_type(mem),
             properties={"key_facts": mem.key_facts, "topics": mem.topics},
             confidence=mem.importance,
+            sources=unique_sources,
         )
         await self._semantic.save_node(session, node)
 

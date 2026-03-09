@@ -13,6 +13,7 @@ from smriti.models import (
     SemanticEdge,
     SemanticNode,
     SourceEvent,
+    SourceMetadata,
     WorkingMemory,
 )
 
@@ -124,6 +125,99 @@ class TestWorkingMemory:
 
 
 # ---------------------------------------------------------------------------
+# Source Metadata
+# ---------------------------------------------------------------------------
+
+
+class TestSourceMetadata:
+    def test_defaults_to_unknown(self) -> None:
+        sm = SourceMetadata()
+        assert sm.source == "unknown"
+        assert sm.event_type == ""
+        assert sm.url is None
+        assert sm.extra == {}
+
+    def test_explicit_fields(self) -> None:
+        sm = SourceMetadata(
+            source="browser",
+            event_type="page_visited",
+            url="https://example.com",
+            title="Example",
+        )
+        assert sm.source == "browser"
+        assert sm.url == "https://example.com"
+
+    def test_from_event_browser(self) -> None:
+        event = SourceEvent(
+            source="browser",
+            event_type="page_visited",
+            raw_content="visited example.com",
+            metadata={
+                "url": "https://example.com",
+                "title": "Example",
+                "dwell_seconds": 42,
+            },
+        )
+        sm = SourceMetadata.from_event(event)
+        assert sm.source == "browser"
+        assert sm.event_type == "page_visited"
+        assert sm.url == "https://example.com"
+        assert sm.title == "Example"
+        assert sm.extra == {"dwell_seconds": 42}
+
+    def test_from_event_chatgpt_import(self) -> None:
+        event = SourceEvent(
+            source="chatgpt",
+            event_type="conversation",
+            raw_content="...",
+            metadata={
+                "file_path": "/imports/conversations.json",
+                "format": "chatgpt",
+                "conversation_id": "conv-123",
+                "model": "gpt-4",
+                "message_count": 12,
+            },
+        )
+        sm = SourceMetadata.from_event(event)
+        assert sm.source == "chatgpt"
+        assert sm.file_path == "/imports/conversations.json"
+        assert sm.format == "chatgpt"
+        assert sm.conversation_id == "conv-123"
+        assert sm.model == "gpt-4"
+        assert sm.extra == {"message_count": 12}
+
+    def test_from_event_unknown_source(self) -> None:
+        event = SourceEvent(
+            source="slack",
+            event_type="message",
+            raw_content="hey team",
+            metadata={"channel": "#general", "thread_ts": "123.456"},
+        )
+        sm = SourceMetadata.from_event(event)
+        assert sm.source == "slack"
+        assert sm.url is None
+        assert sm.extra == {"channel": "#general", "thread_ts": "123.456"}
+
+    def test_from_event_empty_source_becomes_unknown(self) -> None:
+        event = SourceEvent(source="", event_type="", raw_content="orphan data")
+        sm = SourceMetadata.from_event(event)
+        assert sm.source == "unknown"
+
+    def test_roundtrip_serialization(self) -> None:
+        sm = SourceMetadata(
+            source="obsidian",
+            event_type="note",
+            file_path="/vault/daily.md",
+            title="Daily Note",
+            extra={"frontmatter": {"tags": ["journal"]}},
+        )
+        restored = SourceMetadata.model_validate(sm.model_dump())
+        assert restored.source == "obsidian"
+        assert restored.file_path == "/vault/daily.md"
+        assert restored.extra["frontmatter"]["tags"] == ["journal"]
+
+
+# ---------------------------------------------------------------------------
 # Tier 3: Episodic Memory
 # ---------------------------------------------------------------------------
 
@@ -136,6 +230,7 @@ class TestEpisodicMemory:
         assert ep.emotional_valence == 0.0
         assert ep.access_count == 0
         assert ep.embedding == []
+        assert ep.source_metadata is None
 
     def test_with_links(self) -> None:
         from uuid import uuid4
@@ -149,6 +244,16 @@ class TestEpisodicMemory:
         assert len(ep.links) == 1
         assert ep.links[0].target_id == target
 
+    def test_with_source_metadata(self) -> None:
+        sm = SourceMetadata(source="browser", url="https://arxiv.org/abs/123")
+        ep = EpisodicMemory(
+            summary="Read HNSW paper",
+            source="browser",
+            source_metadata=sm,
+        )
+        assert ep.source_metadata is not None
+        assert ep.source_metadata.url == "https://arxiv.org/abs/123"
+
     def test_roundtrip(self) -> None:
         ep = EpisodicMemory(
             summary="Read HNSW docs",
@@ -156,10 +261,17 @@ class TestEpisodicMemory:
             entities=["HNSW", "Pinecone"],
             topics=["vector-search"],
             importance=0.65,
+            source_metadata=SourceMetadata(
+                source="browser",
+                event_type="page_visited",
+                url="https://docs.pinecone.io",
+            ),
         )
         restored = EpisodicMemory.model_validate(ep.model_dump())
         assert restored.summary == ep.summary
         assert restored.entities == ["HNSW", "Pinecone"]
+        assert restored.source_metadata is not None
+        assert restored.source_metadata.url == "https://docs.pinecone.io"
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +285,15 @@ class TestSemanticNode:
         assert isinstance(node.id, UUID)
         assert node.confidence == 0.5
         assert node.source_episodes == []
+        assert node.sources == []
+
+    def test_with_sources(self) -> None:
+        node = SemanticNode(
+            label="prefers Vim keybindings",
+            node_type="preference",
+            sources=["browser", "terminal"],
+        )
+        assert node.sources == ["browser", "terminal"]
 
     def test_with_properties(self) -> None:
         node = SemanticNode(

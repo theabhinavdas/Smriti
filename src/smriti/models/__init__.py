@@ -11,6 +11,7 @@ from smriti.models.memory import (
     MemoryTier,
     SemanticEdge,
     SemanticNode,
+    SourceMetadata,
     WorkingMemory,
 )
 
@@ -26,5 +27,6 @@ __all__ = [
     "SemanticEdge",
     "SemanticNode",
     "SourceEvent",
+    "SourceMetadata",
     "WorkingMemory",
 ]

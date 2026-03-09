@@ -111,8 +111,18 @@ class ConsolidationWorker:
     ) -> list[dict]:
         episode_lines = []
         for ep in episodes:
+            detail = ep.source
+            if ep.source_metadata:
+                parts = [ep.source_metadata.source]
+                if ep.source_metadata.url:
+                    parts.append(f"url={ep.source_metadata.url}")
+                if ep.source_metadata.title:
+                    parts.append(f"title={ep.source_metadata.title}")
+                if ep.source_metadata.file_path:
+                    parts.append(f"file={ep.source_metadata.file_path}")
+                detail = ", ".join(parts)
             episode_lines.append(
-                f"- [{ep.source}, importance={ep.importance:.2f}] {ep.summary}"
+                f"- [{detail}, importance={ep.importance:.2f}] {ep.summary}"
             )
 
         prompt = CONSOLIDATION_PROMPT.format(
@@ -178,6 +188,9 @@ class ConsolidationWorker:
         )
         new_props = {**existing.properties, **fact.get("properties", {})}
         episode_ids = list(existing.source_episodes) + [ep.id for ep in source_episodes]
+        merged_sources = sorted(
+            set(existing.sources) | self._collect_sources(source_episodes)
+        )
 
         updated = SemanticNode(
             id=existing.id,
@@ -186,6 +199,7 @@ class ConsolidationWorker:
             properties=new_props,
             confidence=new_confidence,
             source_episodes=episode_ids,
+            sources=merged_sources,
             created_at=existing.created_at,
         )
         await self.semantic_store.delete_node(session, existing.id)
@@ -205,8 +219,20 @@ class ConsolidationWorker:
             properties=fact.get("properties", {}),
             confidence=fact.get("confidence", 0.5),
             source_episodes=[ep.id for ep in source_episodes],
+            sources=sorted(self._collect_sources(source_episodes)),
         )
         await self.semantic_store.save_node(session, node)
+
+    @staticmethod
+    def _collect_sources(episodes: list[EpisodicMemory]) -> set[str]:
+        """Derive unique collector source names from episodic memories."""
+        sources: set[str] = set()
+        for ep in episodes:
+            if ep.source_metadata:
+                sources.add(ep.source_metadata.source)
+            elif ep.source:
+                sources.add(ep.source)
+        return sources
 
     # ------------------------------------------------------------------
     # Step 4: Decay unaccessed nodes
@@ -226,6 +252,7 @@ class ConsolidationWorker:
                     properties=node.properties,
                     confidence=new_conf,
                     source_episodes=node.source_episodes,
+                    sources=node.sources,
                     created_at=node.created_at,
                 )
                 await self.semantic_store.delete_node(session, node.id)

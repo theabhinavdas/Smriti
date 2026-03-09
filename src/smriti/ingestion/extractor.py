@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from smriti.ingestion.salience import ScoredEvent
 from smriti.llm_utils import parse_llm_json
+from smriti.models.memory import SourceMetadata
 from smriti.provider import ModelProvider
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class ExtractedMemory:
     memory_type: str = "episodic"  # "episodic" or "semantic"
     source: str = ""
     embedding: list[float] = field(default_factory=list)
+    source_metadata: list[SourceMetadata] = field(default_factory=list)
 
 
 class MemoryExtractor:
@@ -57,9 +59,11 @@ class MemoryExtractor:
 
         event_lines = []
         sources: set[str] = set()
+        all_source_meta: list[SourceMetadata] = []
         for se in scored_events:
             e = se.event
             sources.add(e.source)
+            all_source_meta.append(SourceMetadata.from_event(e))
             line = f"[{e.source}/{e.event_type}, salience={se.score:.1f}] {e.raw_content[:300]}"
             event_lines.append(line)
 
@@ -77,7 +81,7 @@ class MemoryExtractor:
             return self._fallback_extract(scored_events)
 
         primary_source = next(iter(sources)) if len(sources) == 1 else "mixed"
-        memories = self._parse_extracted(memories_data, primary_source)
+        memories = self._parse_extracted(memories_data, primary_source, all_source_meta)
 
         summaries = [m.summary for m in memories]
         if summaries:
@@ -91,7 +95,11 @@ class MemoryExtractor:
         return memories
 
     @staticmethod
-    def _parse_extracted(data: list[dict], source: str) -> list[ExtractedMemory]:
+    def _parse_extracted(
+        data: list[dict],
+        source: str,
+        source_metadata: list[SourceMetadata],
+    ) -> list[ExtractedMemory]:
         results: list[ExtractedMemory] = []
         for item in data:
             results.append(
@@ -103,6 +111,7 @@ class MemoryExtractor:
                     importance=float(item.get("importance", 0.5)),
                     memory_type=item.get("memory_type", "episodic"),
                     source=source,
+                    source_metadata=list(source_metadata),
                 )
             )
         return results
@@ -116,6 +125,7 @@ class MemoryExtractor:
                 importance=se.score,
                 memory_type="episodic",
                 source=se.event.source,
+                source_metadata=[SourceMetadata.from_event(se.event)],
             )
             for se in scored_events
         ]

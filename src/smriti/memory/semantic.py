@@ -38,6 +38,7 @@ class SemanticStore:
                 "properties": node.properties,
                 "confidence": node.confidence,
                 "source_episodes": [str(ep) for ep in node.source_episodes],
+                "sources": node.sources,
             },
             importance=node.confidence,
             created_at=node.created_at,
@@ -129,6 +130,7 @@ class SemanticStore:
             source_episodes=[
                 UUID(ep) for ep in facts.get("source_episodes", [])
             ],
+            sources=facts.get("sources", []),
             created_at=row.created_at,
             updated_at=row.accessed_at,
         )

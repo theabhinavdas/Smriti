@@ -80,6 +80,45 @@ class WorkingMemory(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Source provenance
+# ---------------------------------------------------------------------------
+
+_KNOWN_METADATA_KEYS = frozenset(
+    {"url", "file_path", "title", "conversation_id", "format", "model"}
+)
+
+
+class SourceMetadata(BaseModel):
+    """Provenance: where a memory originated.
+
+    Typed fields cover the most common collector metadata.  Anything else
+    lands in ``extra`` so unknown / future sources are never lost.
+    """
+
+    source: str = "unknown"
+    event_type: str = ""
+    url: str | None = None
+    file_path: str | None = None
+    title: str | None = None
+    conversation_id: str | None = None
+    format: str | None = None
+    model: str | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_event(cls, event: object) -> SourceMetadata:
+        """Build from a SourceEvent (imported lazily to avoid circular deps)."""
+        source = getattr(event, "source", "unknown") or "unknown"
+        event_type = getattr(event, "event_type", "")
+        meta: dict[str, Any] = getattr(event, "metadata", {}) or {}
+
+        known = {k: meta[k] for k in _KNOWN_METADATA_KEYS if k in meta}
+        extra = {k: v for k, v in meta.items() if k not in _KNOWN_METADATA_KEYS}
+
+        return cls(source=source, event_type=event_type, **known, extra=extra)
+
+
+# ---------------------------------------------------------------------------
 # Tier 3: Episodic Memory (cross-session compressed episodes)
 # ---------------------------------------------------------------------------
 
@@ -107,6 +146,7 @@ class EpisodicMemory(BaseModel):
     embedding: list[float] = Field(default_factory=list)
     entities: list[str] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)
+    source_metadata: SourceMetadata | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_accessed: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     access_count: int = 0
@@ -132,6 +172,7 @@ class SemanticNode(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 0.5
     source_episodes: list[UUID] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

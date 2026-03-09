@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from smriti.db.repository import MemoryRepository
 from smriti.db.tables import MemoriesTable
-from smriti.models.memory import EpisodicMemory, MemoryTier
+from smriti.models.memory import EpisodicMemory, MemoryTier, SourceMetadata
 
 
 class EpisodicStore:
@@ -39,6 +39,11 @@ class EpisodicStore:
             metadata_={
                 "source": episode.source,
                 "conversation_id": episode.conversation_id,
+                **(
+                    {"source_metadata": episode.source_metadata.model_dump(mode="json")}
+                    if episode.source_metadata
+                    else {}
+                ),
             },
             importance=episode.importance,
             created_at=episode.created_at,
@@ -85,9 +90,14 @@ class EpisodicStore:
     @staticmethod
     def _row_to_model(row: MemoriesTable) -> EpisodicMemory:
         facts = row.facts or {}
+        meta = row.metadata_ or {}
         from smriti.models.memory import MemoryLink
 
         links = [MemoryLink.model_validate(l) for l in facts.get("links", [])]
+
+        raw_sm = meta.get("source_metadata")
+        source_metadata = SourceMetadata.model_validate(raw_sm) if raw_sm else None
+
         return EpisodicMemory(
             id=row.id,
             conversation_id=facts.get("conversation_id", ""),
@@ -97,6 +107,7 @@ class EpisodicStore:
             embedding=list(row.embedding) if row.embedding is not None else [],
             entities=facts.get("entities", []),
             topics=facts.get("topics", []),
+            source_metadata=source_metadata,
             created_at=row.created_at,
             last_accessed=row.accessed_at,
             access_count=row.access_count,

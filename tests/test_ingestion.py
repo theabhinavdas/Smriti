@@ -275,3 +275,111 @@ class TestTierRouter:
         counts = await router.route(db_session, memories)
         assert counts[MemoryTier.EPISODIC] == 1
         assert counts[MemoryTier.SEMANTIC] == 1
+
+
+# ---------------------------------------------------------------------------
+# Source metadata propagation
+# ---------------------------------------------------------------------------
+
+
+from smriti.models.memory import SourceMetadata
+
+
+class TestExtractorSourceMetadata:
+    async def test_extract_attaches_source_metadata(self) -> None:
+        llm_response = json.dumps([
+            {"summary": "User browsed docs", "importance": 0.6, "memory_type": "episodic"}
+        ])
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            if "input" in body:
+                return httpx.Response(
+                    200, json={"data": [{"embedding": [0.1], "index": 0}]}
+                )
+            return httpx.Response(
+                200, json={"choices": [{"message": {"content": llm_response}}]}
+            )
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://openrouter.ai/api/v1",
+        )
+        provider = ModelProvider(config=ModelConfig(api_key="k"), http_client=client)
+        extractor = MemoryExtractor(provider)
+
+        scored = [
+            ScoredEvent(
+                event=_event(
+                    "browser", "page_visited", "read docs",
+                    url="https://docs.example.com", title="Docs",
+                ),
+                score=0.8,
+            )
+        ]
+        result = await extractor.extract(scored)
+
+        assert len(result) == 1
+        assert len(result[0].source_metadata) == 1
+        sm = result[0].source_metadata[0]
+        assert sm.source == "browser"
+        assert sm.event_type == "page_visited"
+        assert sm.url == "https://docs.example.com"
+        assert sm.title == "Docs"
+
+    async def test_fallback_attaches_source_metadata(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="fail")
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://openrouter.ai/api/v1",
+        )
+        provider = ModelProvider(config=ModelConfig(api_key="k"), http_client=client)
+        extractor = MemoryExtractor(provider)
+
+        scored = [
+            ScoredEvent(
+                event=_event(
+                    "chatgpt", "conversation", "...",
+                    file_path="/imports/conv.json", format="chatgpt",
+                    conversation_id="c-1", model="gpt-4",
+                ),
+                score=0.9,
+            )
+        ]
+        result = await extractor.extract(scored)
+
+        assert len(result) == 1
+        sm = result[0].source_metadata[0]
+        assert sm.source == "chatgpt"
+        assert sm.file_path == "/imports/conv.json"
+        assert sm.conversation_id == "c-1"
+
+    async def test_unknown_source_metadata_preserved(self) -> None:
+        """Metadata from unknown collectors goes into extra."""
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="fail")
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://openrouter.ai/api/v1",
+        )
+        provider = ModelProvider(config=ModelConfig(api_key="k"), http_client=client)
+        extractor = MemoryExtractor(provider)
+
+        scored = [
+            ScoredEvent(
+                event=_event(
+                    "slack", "message", "hi team",
+                    channel="#dev", thread_ts="12345",
+                ),
+                score=0.7,
+            )
+        ]
+        result = await extractor.extract(scored)
+
+        sm = result[0].source_metadata[0]
+        assert sm.source == "slack"
+        assert sm.url is None
+        assert sm.extra == {"channel": "#dev", "thread_ts": "12345"}
