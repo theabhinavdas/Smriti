@@ -11,10 +11,10 @@ that land in the uncertain range from Stage 1.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 
+from smriti.llm_utils import parse_llm_json
 from smriti.models.events import SourceEvent
 from smriti.provider import ModelProvider
 
@@ -155,7 +155,7 @@ class SalienceFilter:
                 max_tokens=200,
                 temperature=0.0,
             )
-            scores = json.loads(raw)
+            scores = parse_llm_json(raw)
             for i, llm_score in enumerate(scores):
                 if i < len(events):
                     events[i].score = float(llm_score) / 10.0

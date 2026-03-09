@@ -6,11 +6,11 @@ importance, and generates embeddings.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 
 from smriti.ingestion.salience import ScoredEvent
+from smriti.llm_utils import parse_llm_json
 from smriti.provider import ModelProvider
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class MemoryExtractor:
                 max_tokens=self._provider.config.max_tokens_per_extraction,
                 temperature=0.0,
             )
-            memories_data = json.loads(raw)
+            memories_data = parse_llm_json(raw)
         except Exception:
             logger.warning("Memory extraction LLM call failed", exc_info=True)
             return self._fallback_extract(scored_events)
