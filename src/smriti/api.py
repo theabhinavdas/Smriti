@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import valkey.exceptions
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -46,14 +47,18 @@ async def lifespan(app: FastAPI):  # noqa: ANN201
     _start_time = time.monotonic()
     run_task = asyncio.create_task(_daemon.run())
     yield
-    if _daemon:
-        await _daemon.shutdown()
-        _daemon = None
+    # Signal the daemon loop to stop, then cancel the task so it
+    # unblocks from xreadgroup. Valkey's retry logic may convert the
+    # CancelledError into its own ConnectionError, so we catch both.
+    await _daemon.stop()
     run_task.cancel()
     try:
         await run_task
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, valkey.exceptions.ConnectionError):
         pass
+    if _daemon:
+        await _daemon.shutdown()
+        _daemon = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

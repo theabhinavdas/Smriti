@@ -16,6 +16,8 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+import valkey.exceptions
+
 from smriti.config import Settings, load_settings
 from smriti.db.engine import create_engine, create_session_factory
 from smriti.event_bus import EventBus
@@ -113,6 +115,10 @@ class Daemon:
                 iteration += 1
         except asyncio.CancelledError:
             logger.info("memoryd cancelled, shutting down")
+        except valkey.exceptions.ConnectionError:
+            if self._running:
+                raise
+            logger.info("memoryd connection closed during shutdown")
         finally:
             self._running = False
             if self._import_task is not None and not self._import_task.done():
