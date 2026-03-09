@@ -5,6 +5,8 @@ Uses httpx.AsyncClient with mocked daemon — no live infrastructure.
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,8 +14,8 @@ from httpx import ASGITransport, AsyncClient
 
 import smriti.api as api_module
 from smriti.api import create_app
-from smriti.config import Settings
 from smriti.daemon import PipelineStats
+from smriti.db.tables import EdgesTable, MemoriesTable
 
 
 def _mock_daemon() -> MagicMock:
@@ -138,3 +140,139 @@ class TestStats:
         assert data["events_consumed"] == 42
         assert data["events_filtered"] == 30
         assert data["memories_created"] == 18
+
+
+def _make_memory_row(**overrides):
+    now = datetime.now(UTC)
+    defaults = dict(
+        id=uuid.uuid4(),
+        tier="episodic",
+        content="test memory content",
+        facts=None,
+        metadata_=None,
+        importance=0.7,
+        created_at=now,
+        accessed_at=now,
+        access_count=1,
+    )
+    defaults.update(overrides)
+    row = MagicMock(spec=MemoriesTable)
+    for k, v in defaults.items():
+        setattr(row, k, v)
+    return row
+
+
+def _mock_session(mock_daemon):
+    session = AsyncMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    mock_daemon.session_factory.return_value = session
+    return session
+
+
+class TestListMemories:
+    @pytest.mark.asyncio
+    async def test_list_all(self, client: AsyncClient, mock_daemon) -> None:
+        _mock_session(mock_daemon)
+        rows = [_make_memory_row(content=f"mem-{i}") for i in range(3)]
+        with patch("smriti.api.MemoryRepository") as mock_repo:
+            mock_repo.return_value.list_all = AsyncMock(return_value=rows)
+            resp = await client.get("/v1/memories")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["memories"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_filter_by_tier(self, client: AsyncClient, mock_daemon) -> None:
+        _mock_session(mock_daemon)
+        row = _make_memory_row(tier="semantic")
+        with patch("smriti.api.MemoryRepository") as mock_repo:
+            mock_repo.return_value.list_all = AsyncMock(return_value=[row])
+            resp = await client.get("/v1/memories?tier=semantic")
+
+        assert resp.status_code == 200
+        assert resp.json()["memories"][0]["tier"] == "semantic"
+
+    @pytest.mark.asyncio
+    async def test_text_search(self, client: AsyncClient, mock_daemon) -> None:
+        _mock_session(mock_daemon)
+        row = _make_memory_row(content="debugging CORS")
+        with patch("smriti.api.MemoryRepository") as mock_repo:
+            mock_repo.return_value.search_text = AsyncMock(return_value=[row])
+            resp = await client.get("/v1/memories?q=CORS")
+
+        assert resp.status_code == 200
+        assert len(resp.json()["memories"]) == 1
+
+
+class TestMemoryCounts:
+    @pytest.mark.asyncio
+    async def test_returns_counts(self, client: AsyncClient, mock_daemon) -> None:
+        _mock_session(mock_daemon)
+        with patch("smriti.api.MemoryRepository") as mock_repo:
+            mock_repo.return_value.count_by_tier = AsyncMock(
+                return_value={"episodic": 10, "semantic": 5}
+            )
+            resp = await client.get("/v1/memories/counts")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["counts"]["episodic"] == 10
+        assert data["counts"]["semantic"] == 5
+        assert data["total"] == 15
+
+
+class TestGraph:
+    @pytest.mark.asyncio
+    async def test_returns_nodes_and_edges(self, client: AsyncClient, mock_daemon) -> None:
+        _mock_session(mock_daemon)
+        node_a = _make_memory_row(
+            tier="semantic", content="TypeScript", metadata_={"label": "TypeScript"},
+        )
+        node_b = _make_memory_row(
+            tier="semantic", content="React", metadata_={"label": "React"},
+        )
+
+        edge = MagicMock(spec=EdgesTable)
+        edge.source_id = node_a.id
+        edge.target_id = node_b.id
+        edge.relation = "used_with"
+        edge.weight = 0.9
+
+        with (
+            patch("smriti.api.MemoryRepository") as mock_mem_repo,
+            patch("smriti.api.EdgeRepository") as mock_edge_repo,
+        ):
+            mock_mem_repo.return_value.list_all = AsyncMock(return_value=[node_a, node_b])
+            mock_edge_repo.return_value.get_all_edges = AsyncMock(return_value=[edge])
+            resp = await client.get("/v1/graph")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["nodes"]) == 2
+        assert len(data["edges"]) == 1
+        assert data["edges"][0]["relation"] == "used_with"
+
+    @pytest.mark.asyncio
+    async def test_filters_orphan_edges(self, client: AsyncClient, mock_daemon) -> None:
+        """Edges referencing nodes not in the result set are excluded."""
+        _mock_session(mock_daemon)
+        node = _make_memory_row(tier="semantic", metadata_={"label": "X"})
+
+        orphan_edge = MagicMock(spec=EdgesTable)
+        orphan_edge.source_id = node.id
+        orphan_edge.target_id = uuid.uuid4()
+        orphan_edge.relation = "orphan"
+        orphan_edge.weight = 1.0
+
+        with (
+            patch("smriti.api.MemoryRepository") as mock_mem_repo,
+            patch("smriti.api.EdgeRepository") as mock_edge_repo,
+        ):
+            mock_mem_repo.return_value.list_all = AsyncMock(return_value=[node])
+            mock_edge_repo.return_value.get_all_edges = AsyncMock(return_value=[orphan_edge])
+            resp = await client.get("/v1/graph")
+
+        assert resp.status_code == 200
+        assert len(resp.json()["edges"]) == 0

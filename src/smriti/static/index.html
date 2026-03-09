@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smriti</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1117;--bg2:#181a24;--bg3:#232633;
+  --fg:#e0e0e6;--fg2:#9a9bb0;--fg3:#5c5d72;
+  --accent:#7c8cf8;--accent2:#5b6be0;
+  --green:#4ade80;--amber:#fbbf24;--red:#f87171;
+  --border:#2a2d3a;--radius:6px;
+  --mono:'SF Mono',Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+html{font-size:14px}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.5;min-height:100vh}
+a{color:var(--accent);text-decoration:none}
+
+/* layout */
+.shell{max-width:1100px;margin:0 auto;padding:1rem}
+header{display:flex;align-items:center;gap:1rem;padding:.75rem 0;border-bottom:1px solid var(--border);margin-bottom:1rem}
+header h1{font-size:1.25rem;font-weight:600;font-family:var(--mono);letter-spacing:-.02em}
+.badge{display:inline-flex;align-items:center;gap:.3rem;padding:.15rem .55rem;border-radius:99px;font-size:.75rem;font-family:var(--mono);background:var(--bg3);color:var(--fg2)}
+.badge .n{color:var(--fg);font-weight:600}
+
+/* tabs */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:1rem}
+.tab{padding:.5rem 1.25rem;cursor:pointer;color:var(--fg2);font-size:.85rem;font-weight:500;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.panel{display:none}
+.panel.active{display:block}
+
+/* controls */
+.controls{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap}
+input[type="text"],select{background:var(--bg2);border:1px solid var(--border);color:var(--fg);padding:.45rem .65rem;border-radius:var(--radius);font-size:.85rem;font-family:var(--sans);outline:none;transition:border-color .15s}
+input[type="text"]:focus,select:focus{border-color:var(--accent)}
+input[type="text"]{flex:1;min-width:200px}
+select{min-width:120px}
+button{background:var(--accent2);color:#fff;border:none;padding:.45rem .9rem;border-radius:var(--radius);font-size:.85rem;cursor:pointer;font-weight:500;transition:opacity .15s}
+button:hover{opacity:.85}
+button:disabled{opacity:.4;cursor:default}
+.btn-ghost{background:transparent;color:var(--fg2);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--fg);border-color:var(--fg3)}
+
+/* cards */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:.85rem 1rem;margin-bottom:.5rem;transition:border-color .15s}
+.card:hover{border-color:var(--fg3)}
+.card-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem;flex-wrap:wrap}
+.tier{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;padding:.1rem .4rem;border-radius:3px;font-weight:600;font-family:var(--mono)}
+.tier-episodic{background:#7c8cf822;color:var(--accent)}
+.tier-semantic{background:#4ade8022;color:var(--green)}
+.card-time{font-size:.75rem;color:var(--fg3);margin-left:auto;font-family:var(--mono)}
+.card-body{font-size:.85rem;color:var(--fg2);white-space:pre-wrap;word-break:break-word;max-height:8rem;overflow:hidden;position:relative}
+.card-body.expanded{max-height:none}
+.card-toggle{font-size:.75rem;color:var(--accent);cursor:pointer;margin-top:.3rem;display:inline-block}
+.card-meta{display:flex;gap:1rem;margin-top:.5rem;font-size:.75rem;color:var(--fg3);font-family:var(--mono)}
+.importance-bar{width:60px;height:4px;background:var(--bg3);border-radius:2px;display:inline-block;vertical-align:middle}
+.importance-fill{height:100%;border-radius:2px;background:var(--accent)}
+
+/* search results */
+.score{font-size:.75rem;font-family:var(--mono);color:var(--amber);font-weight:600}
+
+/* pagination */
+.pager{display:flex;align-items:center;justify-content:center;gap:.5rem;margin-top:1rem;font-size:.85rem;color:var(--fg2)}
+
+/* graph */
+#graph-container{width:100%;height:calc(100vh - 180px);min-height:400px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)}
+
+/* empty state */
+.empty{text-align:center;padding:3rem;color:var(--fg3);font-size:.95rem}
+
+/* spinner */
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading{display:flex;align-items:center;justify-content:center;gap:.5rem;padding:2rem;color:var(--fg2)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <h1>smriti</h1>
+    <span class="badge" id="badge-episodic">episodic <span class="n" id="count-episodic">-</span></span>
+    <span class="badge" id="badge-semantic">semantic <span class="n" id="count-semantic">-</span></span>
+    <span class="badge">total <span class="n" id="count-total">-</span></span>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-panel="browse">Browse</div>
+    <div class="tab" data-panel="search">Search</div>
+    <div class="tab" data-panel="graph">Graph</div>
+  </div>
+
+  <!-- Browse -->
+  <div class="panel active" id="browse">
+    <div class="controls">
+      <select id="browse-tier">
+        <option value="">All tiers</option>
+        <option value="episodic">Episodic</option>
+        <option value="semantic">Semantic</option>
+      </select>
+      <input type="text" id="browse-q" placeholder="Filter by keyword…">
+      <button id="browse-go">Filter</button>
+    </div>
+    <div id="browse-results"></div>
+    <div class="pager">
+      <button class="btn-ghost" id="browse-prev" disabled>← Prev</button>
+      <span id="browse-page-info"></span>
+      <button class="btn-ghost" id="browse-next" disabled>Next →</button>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="panel" id="search">
+    <div class="controls">
+      <input type="text" id="search-q" placeholder="Semantic search…">
+      <select id="search-tier">
+        <option value="">All tiers</option>
+        <option value="episodic">Episodic</option>
+        <option value="semantic">Semantic</option>
+      </select>
+      <button id="search-go">Search</button>
+    </div>
+    <div id="search-results"></div>
+  </div>
+
+  <!-- Graph -->
+  <div class="panel" id="graph">
+    <div id="graph-container"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+const API = '';
+const PAGE_SIZE = 30;
+
+// -- State ----------------------------------------------------------------
+let browseOffset = 0;
+let browseHasMore = false;
+
+// -- Tabs -----------------------------------------------------------------
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.panel).classList.add('active');
+    if (tab.dataset.panel === 'graph') initGraph();
+  });
+});
+
+// -- Counts ---------------------------------------------------------------
+async function loadCounts() {
+  try {
+    const r = await fetch(`${API}/v1/memories/counts`);
+    const d = await r.json();
+    document.getElementById('count-episodic').textContent = d.counts.episodic || 0;
+    document.getElementById('count-semantic').textContent = d.counts.semantic || 0;
+    document.getElementById('count-total').textContent = d.total || 0;
+  } catch {}
+}
+
+// -- Browse ---------------------------------------------------------------
+async function loadBrowse() {
+  const tier = document.getElementById('browse-tier').value;
+  const q = document.getElementById('browse-q').value.trim();
+  const container = document.getElementById('browse-results');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+  const params = new URLSearchParams({limit: PAGE_SIZE, offset: browseOffset});
+  if (tier) params.set('tier', tier);
+  if (q) params.set('q', q);
+
+  try {
+    const r = await fetch(`${API}/v1/memories?${params}`);
+    const d = await r.json();
+    browseHasMore = d.memories.length === PAGE_SIZE;
+    renderMemories(container, d.memories);
+    updatePager();
+  } catch (e) {
+    container.innerHTML = `<div class="empty">Failed to load: ${e.message}</div>`;
+  }
+}
+
+function renderMemories(container, memories) {
+  if (!memories.length) {
+    container.innerHTML = '<div class="empty">No memories found</div>';
+    return;
+  }
+  container.innerHTML = memories.map(m => {
+    const tierCls = `tier-${m.tier}`;
+    const time = fmtTime(m.created_at);
+    const imp = Math.round(m.importance * 100);
+    const content = escHtml(m.content);
+    const needsExpand = content.length > 500;
+    return `<div class="card">
+      <div class="card-head">
+        <span class="tier ${tierCls}">${m.tier}</span>
+        <span class="card-time">${time}</span>
+      </div>
+      <div class="card-body${needsExpand ? '' : ' expanded'}">${content}</div>
+      ${needsExpand ? '<span class="card-toggle" onclick="this.previousElementSibling.classList.toggle(\'expanded\');this.textContent=this.textContent===\'show more\'?\'show less\':\'show more\'">show more</span>' : ''}
+      <div class="card-meta">
+        <span>importance: <span class="importance-bar"><span class="importance-fill" style="width:${imp}%"></span></span> ${imp}%</span>
+        <span>accessed: ${m.access_count}×</span>
+        ${m.facts ? `<span>facts: ${Array.isArray(m.facts.key_facts) ? m.facts.key_facts.length : '–'}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updatePager() {
+  const page = Math.floor(browseOffset / PAGE_SIZE) + 1;
+  document.getElementById('browse-page-info').textContent = `Page ${page}`;
+  document.getElementById('browse-prev').disabled = browseOffset === 0;
+  document.getElementById('browse-next').disabled = !browseHasMore;
+}
+
+document.getElementById('browse-go').addEventListener('click', () => { browseOffset = 0; loadBrowse(); });
+document.getElementById('browse-q').addEventListener('keydown', e => { if (e.key === 'Enter') { browseOffset = 0; loadBrowse(); } });
+document.getElementById('browse-tier').addEventListener('change', () => { browseOffset = 0; loadBrowse(); });
+document.getElementById('browse-prev').addEventListener('click', () => { browseOffset = Math.max(0, browseOffset - PAGE_SIZE); loadBrowse(); });
+document.getElementById('browse-next').addEventListener('click', () => { browseOffset += PAGE_SIZE; loadBrowse(); });
+
+// -- Search ---------------------------------------------------------------
+async function doSearch() {
+  const q = document.getElementById('search-q').value.trim();
+  if (!q) return;
+  const tier = document.getElementById('search-tier').value;
+  const container = document.getElementById('search-results');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div> Searching…</div>';
+
+  try {
+    const body = {query: q, top_k: 20};
+    if (tier) body.tier = tier;
+    const r = await fetch(`${API}/v1/search`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    renderSearchResults(container, d.results);
+  } catch (e) {
+    container.innerHTML = `<div class="empty">Search failed: ${e.message}</div>`;
+  }
+}
+
+function renderSearchResults(container, results) {
+  if (!results.length) {
+    container.innerHTML = '<div class="empty">No results</div>';
+    return;
+  }
+  container.innerHTML = results.map(m => {
+    const tierCls = `tier-${m.tier}`;
+    const time = fmtTime(m.created_at);
+    const content = escHtml(m.content);
+    const needsExpand = content.length > 500;
+    return `<div class="card">
+      <div class="card-head">
+        <span class="tier ${tierCls}">${m.tier}</span>
+        <span class="score">score ${m.score.toFixed(3)}</span>
+        <span class="card-time">${time}</span>
+      </div>
+      <div class="card-body${needsExpand ? '' : ' expanded'}">${content}</div>
+      ${needsExpand ? '<span class="card-toggle" onclick="this.previousElementSibling.classList.toggle(\'expanded\');this.textContent=this.textContent===\'show more\'?\'show less\':\'show more\'">show more</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('search-go').addEventListener('click', doSearch);
+document.getElementById('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// -- Helpers --------------------------------------------------------------
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function fmtTime(iso) {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
+    if (diff < 604800000) return `${Math.floor(diff/86400000)}d ago`;
+    return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+  } catch { return iso; }
+}
+
+// -- Graph ----------------------------------------------------------------
+let graphLoaded = false;
+const NODE_COLORS = {
+  person:     {background:'#7c8cf8',border:'#5b6be0'},
+  preference: {background:'#fbbf24',border:'#d9a020'},
+  skill:      {background:'#4ade80',border:'#22c55e'},
+  project:    {background:'#f87171',border:'#dc2626'},
+  concept:    {background:'#a78bfa',border:'#7c3aed'},
+  tool:       {background:'#38bdf8',border:'#0ea5e9'},
+};
+const DEFAULT_COLOR = {background:'#6b7280',border:'#4b5563'};
+
+async function initGraph() {
+  if (graphLoaded) return;
+  const container = document.getElementById('graph-container');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div> Loading graph…</div>';
+
+  try {
+    const r = await fetch(`${API}/v1/graph?limit=200`);
+    const d = await r.json();
+
+    if (!d.nodes.length) {
+      container.innerHTML = '<div class="empty">No semantic nodes yet</div>';
+      return;
+    }
+
+    const nodes = new vis.DataSet(d.nodes.map(n => {
+      const nodeType = (n.metadata && n.metadata.node_type) || '';
+      const colors = NODE_COLORS[nodeType] || DEFAULT_COLOR;
+      return {
+        id: n.id,
+        label: n.label,
+        title: `<b>${escHtml(n.label)}</b><br>type: ${nodeType || '–'}<br>importance: ${Math.round(n.importance*100)}%`,
+        color: colors,
+        font: {color:'#e0e0e6', size:12},
+        value: n.importance,
+      };
+    }));
+
+    const edges = new vis.DataSet(d.edges.map(e => ({
+      from: e.source,
+      to: e.target,
+      label: e.relation,
+      font: {color:'#5c5d72', size:9, strokeWidth:0},
+      color: {color:'#2a2d3a', highlight:'#7c8cf8'},
+      arrows: 'to',
+      width: Math.max(1, e.weight * 2),
+    })));
+
+    container.innerHTML = '';
+    new vis.Network(container, {nodes, edges}, {
+      physics: {
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: {gravitationalConstant: -40, springLength: 120, damping: 0.4},
+        stabilization: {iterations: 80},
+      },
+      interaction: {hover: true, tooltipDelay: 100},
+      nodes: {shape:'dot', scaling:{min:8, max:24}},
+      edges: {smooth: {type:'continuous'}},
+    });
+    graphLoaded = true;
+  } catch (e) {
+    container.innerHTML = `<div class="empty">Failed to load graph: ${e.message}</div>`;
+  }
+}
+
+// -- Boot -----------------------------------------------------------------
+loadCounts();
+loadBrowse();
+</script>
+</body>
+</html>

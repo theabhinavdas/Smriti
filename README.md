@@ -116,15 +116,31 @@ SMRITI_MODEL_API_KEY=sk-or-... docker compose -f docker-compose.prod.yml up -d
 
 This builds the daemon image, runs migrations on startup, and starts all three services. Postgres and Valkey are internal-only (no published ports). The daemon binds to `127.0.0.1:9898`.
 
+## Memory browser
+
+Smriti ships a built-in web UI for browsing, searching, and visualizing memories. Once the daemon is running, open `http://localhost:9898/` in your browser.
+
+The UI has three views:
+
+- **Browse** -- paginated list of all memories, filterable by tier (episodic/semantic) and keyword search. Each card shows the memory content, tier badge, importance score, and relative timestamp.
+- **Search** -- semantic search powered by vector embeddings. Type a natural-language query and get ranked results with relevance scores.
+- **Graph** -- interactive force-directed visualization of the semantic knowledge graph. Nodes are colored by type (person, skill, project, concept, etc.) and edges show labeled relationships. Zoom, pan, and hover for details.
+
+The UI is a single HTML file with no build step -- vanilla JS and CSS, with [vis-network](https://visjs.github.io/vis-network/) loaded from CDN for the graph view.
+
 ## API
 
 The daemon exposes a local HTTP API:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/` | Memory browser UI |
 | `GET` | `/v1/health` | Liveness check with uptime |
 | `POST` | `/v1/events` | Push events (for collectors) |
 | `POST` | `/v1/search` | Semantic memory search |
+| `GET` | `/v1/memories` | Browse memories (filter by `?tier=`, `?q=`, pagination via `?limit=&offset=`) |
+| `GET` | `/v1/memories/counts` | Memory counts by tier |
+| `GET` | `/v1/graph` | Semantic knowledge graph (nodes + edges for visualization) |
 | `GET` | `/v1/stats` | Pipeline statistics |
 | `GET` | `/v1/imports` | List processed imports (filter by `?status=completed\|failed`) |
 | `POST` | `/v1/imports/retry` | Delete a tracking record so a file gets re-imported (`?file_hash=...`) |
@@ -214,7 +230,9 @@ src/smriti/
 ├── consolidation.py # Episodic → semantic promotion (sleep-like)
 ├── daemon.py        # Pipeline orchestrator (consume loop + import watcher)
 ├── api.py           # FastAPI HTTP endpoints
-└── cli.py           # Click CLI (serve, status, search)
+├── cli.py           # Click CLI (serve, status, search)
+└── static/
+    └── index.html   # Memory browser UI (single-file, no build step)
 
 collectors/browser/  # Chrome extension for browsing activity capture
 ├── manifest.json    # Manifest V3 (Chrome, Arc, Brave, Edge)

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from smriti.db.tables import EdgesTable, MemoriesTable
@@ -79,6 +79,50 @@ class MemoryRepository:
         )
         await session.execute(stmt)
 
+    async def list_all(
+        self,
+        session: AsyncSession,
+        *,
+        tier: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[MemoriesTable]:
+        stmt = select(MemoriesTable).order_by(MemoriesTable.created_at.desc())
+        if tier is not None:
+            stmt = stmt.where(MemoriesTable.tier == tier)
+        stmt = stmt.limit(limit).offset(offset)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_by_tier(
+        self, session: AsyncSession
+    ) -> dict[str, int]:
+        stmt = select(MemoriesTable.tier, func.count()).group_by(MemoriesTable.tier)
+        result = await session.execute(stmt)
+        return {tier: count for tier, count in result.all()}
+
+    async def search_text(
+        self,
+        session: AsyncSession,
+        query: str,
+        *,
+        tier: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[MemoriesTable]:
+        """Case-insensitive substring search on content."""
+        pattern = f"%{query}%"
+        stmt = (
+            select(MemoriesTable)
+            .where(MemoriesTable.content.ilike(pattern))
+            .order_by(MemoriesTable.created_at.desc())
+        )
+        if tier is not None:
+            stmt = stmt.where(MemoriesTable.tier == tier)
+        stmt = stmt.limit(limit).offset(offset)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     async def delete_by_id(self, session: AsyncSession, memory_id: UUID) -> None:
         stmt = delete(MemoriesTable).where(MemoriesTable.id == memory_id)
         await session.execute(stmt)
@@ -115,6 +159,16 @@ class EdgeRepository:
         relation: str,
     ) -> list[EdgesTable]:
         stmt = select(EdgesTable).where(EdgesTable.relation == relation)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_all_edges(
+        self,
+        session: AsyncSession,
+        *,
+        limit: int = 500,
+    ) -> list[EdgesTable]:
+        stmt = select(EdgesTable).limit(limit)
         result = await session.execute(stmt)
         return list(result.scalars().all())
 

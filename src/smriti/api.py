@@ -1,27 +1,37 @@
 """FastAPI HTTP API for memoryd.
 
 Endpoints:
-  GET  /v1/health  -- liveness + component status
-  POST /v1/events  -- collectors push SourceEvents
-  POST /v1/search  -- semantic memory search
-  GET  /v1/stats   -- pipeline stats
+  GET  /v1/health          -- liveness + component status
+  POST /v1/events          -- collectors push SourceEvents
+  POST /v1/search          -- semantic memory search
+  GET  /v1/memories        -- browse/list memories with filters
+  GET  /v1/memories/counts -- memory counts by tier
+  GET  /v1/graph           -- semantic knowledge graph (nodes + edges)
+  GET  /v1/stats           -- pipeline stats
+  GET  /                   -- memory browser UI
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from smriti.config import Settings, load_settings
 from smriti.daemon import Daemon
+from smriti.db.repository import EdgeRepository, MemoryRepository
 from smriti.imports.tracker import ImportTracker
 from smriti.models.events import SourceEvent
 from smriti.retrieval import RetrievalEngine
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 _daemon: Daemon | None = None
 _start_time: float = 0.0
@@ -29,15 +39,21 @@ _start_time: float = 0.0
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ANN201
-    """Startup: bootstrap the daemon. Shutdown: release resources."""
+    """Startup: bootstrap the daemon and start the consume loop. Shutdown: release resources."""
     global _daemon, _start_time
     settings: Settings = app.state.settings if hasattr(app.state, "settings") else load_settings()
     _daemon = await Daemon.from_settings(settings)
     _start_time = time.monotonic()
+    run_task = asyncio.create_task(_daemon.run())
     yield
     if _daemon:
         await _daemon.shutdown()
         _daemon = None
+    run_task.cancel()
+    try:
+        await run_task
+    except asyncio.CancelledError:
+        pass
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -52,6 +68,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings:
         app.state.settings = settings
     app.include_router(_router)
+
+    @app.get("/", include_in_schema=False)
+    async def ui() -> FileResponse:
+        return FileResponse(_STATIC_DIR / "index.html", media_type="text/html")
+
     return app
 
 
@@ -239,3 +260,141 @@ async def stats() -> StatsResponse:
         memories_created=s.memories_created,
         uptime_seconds=round(time.monotonic() - _start_time, 1),
     )
+
+
+# -- Memories (browse) ----------------------------------------------------
+
+
+class MemoryItem(BaseModel):
+    id: str
+    tier: str
+    content: str
+    facts: Any | None = None
+    metadata: Any | None = None
+    importance: float
+    created_at: str
+    accessed_at: str
+    access_count: int
+
+
+class MemoriesListResponse(BaseModel):
+    memories: list[MemoryItem]
+
+
+@_router.get("/memories")
+async def list_memories(
+    tier: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> MemoriesListResponse:
+    daemon = _get_daemon()
+    repo = MemoryRepository()
+    async with daemon.session_factory() as session:
+        if q:
+            rows = await repo.search_text(
+                session, q, tier=tier, limit=limit, offset=offset
+            )
+        else:
+            rows = await repo.list_all(
+                session, tier=tier, limit=limit, offset=offset
+            )
+
+    return MemoriesListResponse(
+        memories=[
+            MemoryItem(
+                id=str(r.id),
+                tier=r.tier,
+                content=r.content,
+                facts=r.facts,
+                metadata=r.metadata_,
+                importance=r.importance,
+                created_at=r.created_at.isoformat(),
+                accessed_at=r.accessed_at.isoformat(),
+                access_count=r.access_count,
+            )
+            for r in rows
+        ]
+    )
+
+
+class CountsResponse(BaseModel):
+    counts: dict[str, int]
+    total: int
+
+
+@_router.get("/memories/counts")
+async def memory_counts() -> CountsResponse:
+    daemon = _get_daemon()
+    repo = MemoryRepository()
+    async with daemon.session_factory() as session:
+        counts = await repo.count_by_tier(session)
+    return CountsResponse(counts=counts, total=sum(counts.values()))
+
+
+# -- Graph -----------------------------------------------------------------
+
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    tier: str
+    importance: float
+    metadata: Any | None = None
+
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    relation: str
+    weight: float
+
+
+class GraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
+@_router.get("/graph")
+async def knowledge_graph(limit: int = 200) -> GraphResponse:
+    """Return semantic nodes and edges for graph visualization."""
+    daemon = _get_daemon()
+    mem_repo = MemoryRepository()
+    edge_repo = EdgeRepository()
+    async with daemon.session_factory() as session:
+        nodes_raw = await mem_repo.list_all(
+            session, tier="semantic", limit=limit
+        )
+        edges_raw = await edge_repo.get_all_edges(session, limit=limit * 3)
+
+    node_ids = {str(n.id) for n in nodes_raw}
+    nodes = [
+        GraphNode(
+            id=str(n.id),
+            label=_extract_label(n),
+            tier=n.tier,
+            importance=n.importance,
+            metadata=n.metadata_,
+        )
+        for n in nodes_raw
+    ]
+    edges = [
+        GraphEdge(
+            source=str(e.source_id),
+            target=str(e.target_id),
+            relation=e.relation,
+            weight=e.weight,
+        )
+        for e in edges_raw
+        if str(e.source_id) in node_ids and str(e.target_id) in node_ids
+    ]
+    return GraphResponse(nodes=nodes, edges=edges)
+
+
+def _extract_label(row: Any) -> str:
+    """Pull a human-readable label from metadata, falling back to content prefix."""
+    if row.metadata_:
+        for key in ("label", "title", "name"):
+            if key in row.metadata_:
+                return str(row.metadata_[key])
+    return row.content[:60]
